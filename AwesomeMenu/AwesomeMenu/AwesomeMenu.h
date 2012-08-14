@@ -13,15 +13,7 @@
 
 
 @interface AwesomeMenu : UIView <AwesomeMenuItemDelegate>
-{
-    NSArray *_menusArray;
-    int _flag;
-    NSTimer *_timer;
-    AwesomeMenuItem *_addButton;
-    
-    id<AwesomeMenuDelegate> _delegate;
-    BOOL _isAnimating;
-}
+
 @property (nonatomic, copy) NSArray *menusArray;
 @property (nonatomic, getter = isExpanding) BOOL expanding;
 @property (nonatomic, assign) id<AwesomeMenuDelegate> delegate;
@@ -41,7 +33,9 @@
 @property (nonatomic, assign) CGFloat expandRotation;
 @property (nonatomic, assign) CGFloat closeRotation;
 
+- (void)collapse;
 - (id)initWithFrame:(CGRect)frame menus:(NSArray *)aMenusArray;
+
 @end
 
 @protocol AwesomeMenuDelegate <NSObject>

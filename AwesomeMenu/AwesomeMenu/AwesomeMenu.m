@@ -19,7 +19,8 @@ static CGFloat const kAwesomeMenuDefaultRotateAngle = 0.0;
 static CGFloat const kAwesomeMenuDefaultMenuWholeAngle = M_PI * 2;
 static CGFloat const kAwesomeMenuDefaultExpandRotation = M_PI;
 static CGFloat const kAwesomeMenuDefaultCloseRotation = M_PI * 2;
-
+static NSUInteger const kInvalidButton = -1;
+static NSUInteger const kButtonTagOffset = 1000;
 
 static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float angle)
 {
@@ -30,17 +31,25 @@ static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float an
 }
 
 @interface AwesomeMenu ()
-- (void)_expand;
-- (void)_close;
-- (void)_setMenu;
+- (void)expandMenu;
+- (void)collapseMenu;
+- (void)configureMenu;
 - (CAAnimationGroup *)_blowupAnimationAtPoint:(CGPoint)p;
 - (CAAnimationGroup *)_shrinkAnimationAtPoint:(CGPoint)p;
 @end
 
-@implementation AwesomeMenu
+@implementation AwesomeMenu {
+    NSArray *_menusArray;
+    NSTimer *_timer;
+    AwesomeMenuItem *_addButton;
+    
+    id<AwesomeMenuDelegate> _delegate;
+    BOOL _isAnimating;
+    int _currentButton;
+}
 
 @synthesize nearRadius, endRadius, farRadius, timeOffset, rotateAngle, menuWholeAngle, startPoint, expandRotation, closeRotation;
-@synthesize expanding = _expanding;
+@synthesize expanding = expandMenuing;
 @synthesize delegate = _delegate;
 @synthesize menusArray = _menusArray;
 
@@ -128,6 +137,7 @@ static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float an
 
                                
 #pragma mark - UIView's methods
+
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
 {
     // if the menu is animating, prevent touches
@@ -135,9 +145,10 @@ static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float an
     {
         return NO;
     }
+
     // if the menu state is expanding, everywhere can be touch
     // otherwise, only the add button are can be touch
-    if (YES == _expanding) 
+    if (self.expanding == YES) 
     {
         return YES;
     }
@@ -147,19 +158,47 @@ static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float an
     }
 }
 
+- (void)updateMenu {
+    SEL selector;
+    if (self.expanding) {
+	[self configureMenu];
+	_currentButton = 0;
+	selector = @selector(expandMenu);
+    }
+    else {
+	_currentButton = [_menusArray count] - 1;
+	selector = @selector(collapseMenu);
+    }
+
+    // rotate add button
+    float angle = self.isExpanding ? -M_PI_4 : 0.0f;
+    [UIView animateWithDuration:0.2f animations:^{
+        _addButton.transform = CGAffineTransformMakeRotation(angle);
+    }];
+    
+    // Adding timer to runloop to make sure UI event won't block the timer from firing
+    _timer = [[NSTimer timerWithTimeInterval:timeOffset target:self selector:selector userInfo:nil repeats:YES] retain];
+    [[NSRunLoop currentRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
+    _isAnimating = YES;
+}
+
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event
 {
     self.expanding = !self.isExpanding;
+    [self updateMenu];
 }
 
 #pragma mark - AwesomeMenuItem delegates
+
 - (void)AwesomeMenuItemTouchesBegan:(AwesomeMenuItem *)item
 {
-    if (item == _addButton) 
+    if (item == _addButton)
     {
         self.expanding = !self.isExpanding;
+	[self updateMenu];
     }
 }
+
 - (void)AwesomeMenuItemTouchesEnd:(AwesomeMenuItem *)item
 {
     // exclude the "add" button
@@ -184,7 +223,7 @@ static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float an
 
         otherItem.center = otherItem.startPoint;
     }
-    _expanding = NO;
+    self.expanding = NO;
     
     // rotate "add" button
     float angle = self.isExpanding ? -M_PI_4 : 0.0f;
@@ -194,7 +233,7 @@ static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float an
     
     if ([_delegate respondsToSelector:@selector(AwesomeMenu:didSelectIndex:)])
     {
-        [_delegate AwesomeMenu:self didSelectIndex:item.tag - 1000];
+        [_delegate AwesomeMenu:self didSelectIndex:item.tag - kButtonTagOffset];
     }
 }
 
@@ -212,7 +251,7 @@ static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float an
     // clean subviews
     for (UIView *v in self.subviews) 
     {
-        if (v.tag >= 1000) 
+        if (v.tag >= kButtonTagOffset) 
         {
             [v removeFromSuperview];
         }
@@ -220,12 +259,12 @@ static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float an
 }
 
 
-- (void)_setMenu {
-	int count = [_menusArray count];
+- (void)configureMenu {
+    int count = [_menusArray count];
     for (int i = 0; i < count; i ++)
     {
         AwesomeMenuItem *item = [_menusArray objectAtIndex:i];
-        item.tag = 1000 + i;
+        item.tag = kButtonTagOffset + i;
         item.startPoint = startPoint;
         CGPoint endPoint = CGPointMake(startPoint.x + endRadius * sinf(i * menuWholeAngle / count), startPoint.y - endRadius * cosf(i * menuWholeAngle / count));
         item.endPoint = RotateCGPointAroundCenter(endPoint, startPoint, rotateAngle);
@@ -235,54 +274,22 @@ static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float an
         item.farPoint = RotateCGPointAroundCenter(farPoint, startPoint, rotateAngle);  
         item.center = item.startPoint;
         item.delegate = self;
-		[self insertSubview:item belowSubview:_addButton];
+	[self insertSubview:item belowSubview:_addButton];
     }
 }
 
-- (BOOL)isExpanding
-{
-    return _expanding;
-}
-- (void)setExpanding:(BOOL)expanding
-{
-	if (expanding) {
-		[self _setMenu];
-	}
-	
-    _expanding = expanding;    
-    
-    // rotate add button
-    float angle = self.isExpanding ? -M_PI_4 : 0.0f;
-    [UIView animateWithDuration:0.2f animations:^{
-        _addButton.transform = CGAffineTransformMakeRotation(angle);
-    }];
-    
-    // expand or close animation
-    if (!_timer) 
-    {
-        _flag = self.isExpanding ? 0 : ([_menusArray count] - 1);
-        SEL selector = self.isExpanding ? @selector(_expand) : @selector(_close);
-
-        // Adding timer to runloop to make sure UI event won't block the timer from firing
-        _timer = [[NSTimer timerWithTimeInterval:timeOffset target:self selector:selector userInfo:nil repeats:YES] retain];
-        [[NSRunLoop currentRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
-        _isAnimating = YES;
+- (void)collapse {
+    for (AwesomeMenuItem *item in _menusArray) {
+	item.center = startPoint;
     }
+    _currentButton = kInvalidButton;
 }
+
 #pragma mark - private methods
-- (void)_expand
+
+- (void)expandMenu
 {
-	
-    if (_flag == [_menusArray count])
-    {
-        _isAnimating = NO;
-        [_timer invalidate];
-        [_timer release];
-        _timer = nil;
-        return;
-    }
-    
-    int tag = 1000 + _flag;
+    int tag = kButtonTagOffset + _currentButton;
     AwesomeMenuItem *item = (AwesomeMenuItem *)[self viewWithTag:tag];
     
     CAKeyframeAnimation *rotateAnimation = [CAKeyframeAnimation animationWithKeyPath:@"transform.rotation.z"];
@@ -307,26 +314,24 @@ static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float an
     animationgroup.duration = 0.5f;
     animationgroup.fillMode = kCAFillModeForwards;
     animationgroup.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseIn];
-    [item.layer addAnimation:animationgroup forKey:@"Expand"];
-    item.center = item.endPoint;
-    
-    _flag ++;
-    
-}
 
-- (void)_close
-{
-    if (_flag == -1)
+    if (++_currentButton == [_menusArray count])
     {
-        _isAnimating = NO;
+	animationgroup.delegate = self;
         [_timer invalidate];
         [_timer release];
         _timer = nil;
-        return;
     }
+
+    [item.layer addAnimation:animationgroup forKey:@"Expand"];
+    item.center = item.endPoint;
     
-    int tag = 1000 + _flag;
-     AwesomeMenuItem *item = (AwesomeMenuItem *)[self viewWithTag:tag];
+}
+
+- (void)collapseMenu
+{
+    int tag = kButtonTagOffset + _currentButton;
+    AwesomeMenuItem *item = (AwesomeMenuItem *)[self viewWithTag:tag];
     
     CAKeyframeAnimation *rotateAnimation = [CAKeyframeAnimation animationWithKeyPath:@"transform.rotation.z"];
     rotateAnimation.values = [NSArray arrayWithObjects:[NSNumber numberWithFloat:0.0f],[NSNumber numberWithFloat:closeRotation],[NSNumber numberWithFloat:0.0f], nil];
@@ -350,9 +355,17 @@ static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float an
     animationgroup.duration = 0.5f;
     animationgroup.fillMode = kCAFillModeForwards;
     animationgroup.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseIn];
+
+    if (--_currentButton == kInvalidButton)
+    {
+	animationgroup.delegate = self;
+        [_timer invalidate];
+        [_timer release];
+        _timer = nil;
+    }
+    
     [item.layer addAnimation:animationgroup forKey:@"Close"];
     item.center = item.startPoint;
-    _flag --;
 }
 
 - (CAAnimationGroup *)_blowupAnimationAtPoint:(CGPoint)p
@@ -395,5 +408,10 @@ static CGPoint RotateCGPointAroundCenter(CGPoint point, CGPoint center, float an
     return animationgroup;
 }
 
+#pragma mark Core Animation Delegate
+
+- (void)animationDidStop:(CAAnimation *)theAnimation finished:(BOOL)flag {
+    _isAnimating = NO;
+}
 
 @end
