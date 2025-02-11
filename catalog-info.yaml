@@ -1,0 +1,16 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: AwesomeMenu
+  description: Path 2.0 menu using CoreAnimation :)
+  annotations:
+    business-unit: EverHealth
+    github.com/project-slug: drchrono/AwesomeMenu
+    product: DRC
+spec:
+  type: service
+  lifecycle: production
+  owner: EverHealth
+  implementation:
+    languages:
+    - Objective-C
